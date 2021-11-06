@@ -1,0 +1,320 @@
+<html>
+
+<head>
+    <title>
+        iris test
+    </title>
+    <style>
+        html,
+        body {
+            margin: 0;
+            width: 100vw;
+            overflow-x: hidden;
+        }
+
+        .character {
+            width: 300px;
+            height: 400px;
+            display: inline-block;
+            margin: 5px;
+            background-color: lightpink;
+        }
+
+        .character.loading::before {
+            content: "Loading...";
+            position: absolute;
+            margin: 10px;
+        }
+
+        canvas:not(#preview) {
+            position: absolute;
+            top: 0;
+            width: 100vw;
+            height: 100vh;
+            display: block;
+            pointer-events: none;
+        }
+
+        canvas#preview {
+            width: 500px;
+            height: 500px;
+        }
+
+        #previewers {
+            display: inline-block;
+            width: 500px;
+            height: 500px;
+        }
+
+        #params {
+            display: inline-block;
+        }
+
+        svg {
+            display: inline-block;
+        }
+
+        video {
+            height: 400px;
+            width: auto;
+        }
+    </style>
+    <script src="https://unpkg.com/core-js-bundle@3.6.1/minified.js"></script>
+    <script src="src/live2dcubismcore.min.js"></script>
+    <script src="src/bundle.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@2.6.0/dist/tf.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection"></script>
+
+    <script src="src/three.js"></script>
+</head>
+
+<body>
+    <video id='videoElement'>
+
+    </video>
+    <div id="previewers">
+
+    </div>
+    <pre id="params">
+    </pre>
+    <div class="canvas-container">
+
+    </div>
+    <svg height="210" width="500" >
+        <path id="vis" d="" style="stroke:rgb(255,0,0);stroke-width:1;fill:none;transform: translateY(100px)" />
+    </svg>
+
+</body>
+<script>
+    var path=document.getElementById("vis");
+    var xscale = 1, xoff = 0;
+    var maxLength = 1000;
+    var yscale = 1, yoff = 0;
+    var chart = []
+    function updateVis(newVal){
+        chart = [newVal].concat(chart);
+        if(chart.length > maxLength){
+            chart.pop();
+        }
+        var d = "M 0 100 L"
+        chart.forEach((e,i)=>{
+            d += ` ${i*xscale + xoff} ${e*xscale + yoff},`
+        })
+        path.setAttribute("d", d);
+
+    }
+</script>
+
+<script type="module">
+    const model = await faceLandmarksDetection.load(faceLandmarksDetection.SupportedPackages.mediapipeFacemesh);
+    const videoObj = document.querySelector("#videoElement");
+    const paramObj = document.querySelector("#params");
+
+    let e = await loadModel("resource/mark_free_Import.model3.json");
+
+
+    if (navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(function (stream) {
+                videoObj.srcObject = stream;
+
+
+            })
+            .catch(function (err0r) {
+                console.log("Something went wrong!", err0r);
+            });
+    }
+
+    videoObj.onloadeddata = (ev) => {
+        videoObj.play();
+        try {
+            faceDetection(videoObj);
+        } catch (err) {
+            console.log("facedetection error: ", err);
+        }
+    }
+
+
+    async function faceDetection(video) {
+        const faces = await model.estimateFaces({ input: video });
+        try {
+            //console.log(faces);
+            refreshPreviewer(faces[0]);
+        } catch (err) {
+
+        }
+
+        setTimeout(() => {
+            faceDetection(video);
+        }, 5);
+    }
+
+    function refreshPreviewer(face) {
+        window.lastDetectedFace = face;
+        var tip = face.annotations.noseTip[0];
+        var leftCorner = face.annotations.noseLeftCorner[0];
+        var rightCorner = face.annotations.noseRightCorner[0];
+
+        // var mouseOpenVec = distanceVector(face.mesh[13],face.mesh[14]);
+        var mouseOpen = distanceVector(face.mesh[13], face.mesh[14]) / 30 - 0.1;
+
+        var vec1 = [];
+        var vec2 = [];
+
+        leftCorner.forEach((el, index) => {
+            vec1.push(tip[index] - el);
+        });
+        rightCorner.forEach((el, index) => {
+            vec2.push(tip[index] - el);
+        });
+
+        var vect = normalize([[vec1[0] + vec2[0]], [vec1[1] + vec2[1]], [vec1[2] + vec2[2]]]);
+
+        // head tilt
+        var angle = - Math.atan2((rightCorner[1] - leftCorner[1]), (rightCorner[0], leftCorner[0]));
+        var theta = angle * (180 / Math.PI) * 3;
+
+
+        vect = vect.map(x => x * 30);
+
+        //eye position
+        var iris = face.annotations.leftEyeIris[0];
+        var toCCenter = distanceVector(iris, lastDetectedFace.scaledMesh[362]);
+        var toCFar = distanceVector(iris, lastDetectedFace.scaledMesh[263]);
+        var toUpper = distanceVector(iris, lastDetectedFace.scaledMesh[386]);
+        var toLower = distanceVector(iris, lastDetectedFace.scaledMesh[374]);
+
+        var eyeX = (toCCenter / (toCCenter + toCFar)) * 2 - 1;
+        var eyeY = (toLower / (toUpper + toLower)) * 2 - 1;
+
+        var eyeBL = distanceVector(lastDetectedFace.scaledMesh[386],lastDetectedFace.scaledMesh[374]) / distanceVector(face.annotations.noseLeftCorner[0],face.annotations.noseRightCorner[0])
+        var eyeBR = distanceVector(lastDetectedFace.scaledMesh[159],lastDetectedFace.scaledMesh[145]) / distanceVector(face.annotations.noseLeftCorner[0],face.annotations.noseRightCorner[0])
+        var eyeBL  = eyeBL * 5 - 0.5;
+        var eyeBR  = eyeBR * 5 - 0.5;
+        e.character.setMotion(vect[0] * 0.7, - vect[1] * 1.2, theta, 1, mouseOpen);
+        e.character.setEyes(eyeX, eyeY, isblinking(eyeBL), isblinking(eyeBR));
+
+        paramObj.innerHTML =
+            `
+        normal:${vect[0]},${vect[1]},${vect[2]}
+        theta:${theta}
+        mouse open:${mouseOpen}
+        eyeX:${eyeX}
+        eyeY:${eyeY}
+        eyeBL:${eyeBL}
+        eyeBR:${eyeBR}
+        `
+
+        updateVis(vect[0])
+        animate();
+    }
+
+
+    function isblinking(lid){
+        if(lid > 0.4) return 1;
+        else return 0;
+    }
+
+    console.log("mark: ", e);
+
+    function distanceVector(v1, v2) {
+        var dx = v1[0] - v2[0];
+        var dy = v1[1] - v2[1];
+        var dz = v1[2] - v2[2];
+
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    function normalize(v) {
+        var magn = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        if (magn == 0) {
+            return 0;
+        }
+        return [[v[0] / magn], [v[1] / magn], [v[2] / magn]];
+    }
+
+
+</script>
+
+<script>
+    const previewer = document.querySelector("#previewers");
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(500, 500);
+    previewer.appendChild(renderer.domElement);
+    renderer.setClearColor(0xffffff, 1);
+
+    vertices = []
+
+    const geometry = new THREE.BufferGeometry();
+    const geometry2 = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geometry2.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+
+    const sprite = new THREE.TextureLoader().load('src/disc.png');
+
+    const material = new THREE.PointsMaterial({ size: 1, sizeAttenuation: true, map: sprite, alphaTest: 0.5, transparent: true });
+    material.color.setHSL(0.6, 1.0, 0.5);
+
+    const material2 = new THREE.PointsMaterial({ size: 1.5, sizeAttenuation: true, map: sprite, alphaTest: 0.5, transparent: true });
+    material2.color.setHSL(0.0, 1.0, 0.5);
+
+
+    const particles = new THREE.Points(geometry, material);
+    const particles2 = new THREE.Points(geometry2, material2);
+    scene.add(particles);
+    scene.add(particles2);
+
+
+    //var face = window.lastDetectedFace.mesh;
+
+    camera.position.z = -30;
+    camera.position.y = 25;
+    camera.position.x = 30;
+
+
+
+    camera.lookAt(30, 25, 30);
+
+    camera.rotation.z = Math.PI * 2;
+
+    const animate = function () {
+        var specialAnnotations = [];
+        var specialVerts = [];
+        if (lastDetectedFace != null) {
+            vertices = lastDetectedFace.scaledMesh.flat().map(x => x * 0.1);
+            // look = lastDetectedFace.mesh.reduce((pv,cr)=> [(pv[0] + cr[0])/2,(pv[1] + cr[1])/2,(pv[2] + cr[2])/2] );
+            // specialAnnotations = specialAnnotations.concat(lastDetectedFace.annotations.leftEyeIris);
+            specialAnnotations.push(lastDetectedFace.annotations.leftEyeIris[0]);
+            specialAnnotations = specialAnnotations.concat(lastDetectedFace.annotations.noseTip);
+            specialAnnotations = specialAnnotations.concat(lastDetectedFace.annotations.noseLeftCorner);
+            specialAnnotations = specialAnnotations.concat(lastDetectedFace.annotations.noseRightCorner);
+            specialAnnotations = specialAnnotations.concat(lastDetectedFace.annotations.noseRightCorner);
+            specialAnnotations.push(lastDetectedFace.scaledMesh[13]);//mouth upper
+            specialAnnotations.push(lastDetectedFace.scaledMesh[14]);//mouth lower
+            specialAnnotations.push(lastDetectedFace.scaledMesh[362]);//left eye corner center
+            specialAnnotations.push(lastDetectedFace.scaledMesh[263]);//left eye corner far
+            specialAnnotations.push(lastDetectedFace.scaledMesh[386]);//left eye upper
+            specialAnnotations.push(lastDetectedFace.scaledMesh[374]);//left eye lower
+
+            specialAnnotations.push(lastDetectedFace.scaledMesh[159]);//right eye upper
+            specialAnnotations.push(lastDetectedFace.scaledMesh[145]);//right eye lower
+            specialVerts = specialAnnotations.flat().map(x => x * 0.1);
+        }
+
+        //camera.lookAt(look[0],look[1],look[2]);
+
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        geometry2.setAttribute('position', new THREE.Float32BufferAttribute(specialVerts, 3));
+
+        renderer.render(scene, camera);
+    };
+
+</script>
+
+
+</html>
