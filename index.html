@@ -134,7 +134,7 @@
             console.log("facedetection error: ", err);
         }
     }
-
+    console.log("model: ", model);
 
     async function faceDetection(video) {
         const faces = await model.estimateFaces({ input: video });

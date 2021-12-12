@@ -1,0 +1,502 @@
+<html>
+
+<head>
+    <title>
+        iris test
+    </title>
+    <style>
+        html,
+        body {
+            margin: 0;
+            width: 100vw;
+            overflow-x: hidden;
+        }
+
+        .character {
+            width: 300px;
+            height: 400px;
+            display: inline-block;
+            margin: 5px;
+            background-color: lightpink;
+        }
+
+        .character.loading::before {
+            content: "Loading...";
+            position: absolute;
+            margin: 10px;
+        }
+
+        canvas:not(#preview) {
+            position: absolute;
+            top: 0;
+            width: 100vw;
+            height: 100vh;
+            display: block;
+            pointer-events: none;
+        }
+
+        canvas#preview {
+            width: 500px;
+            height: 500px;
+        }
+
+        #previewers {
+            display: inline-block;
+            width: 500px;
+            height: 500px;
+        }
+
+        #params {
+            display: inline-block;
+        }
+
+        svg {
+            display: inline-block;
+        }
+
+        video {
+            height: 400px;
+            width: auto;
+        }
+
+        select {
+            display: block;
+        }
+    </style>
+    <script src="https://unpkg.com/core-js-bundle@3.6.1/minified.js"></script>
+    <script src="src/live2dcubismcore.min.js"></script>
+    <script src="src/bundle.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+
+    <script src="src/three.js"></script>
+</head>
+
+<body>
+    <select id="videoInputs">
+
+    </select>
+    <video id='videoElement'>
+
+    </video>
+    <div id="previewers">
+
+    </div>
+    <pre id="params">
+    </pre>
+    <div class="canvas-container">
+
+    </div>
+    <svg height="210" width="500">
+        <path id="vis" d="" style="stroke:rgb(255,0,0);stroke-width:1;fill:none;transform: translateY(100px)" />
+    </svg>
+
+</body>
+<script>
+    var path = document.getElementById("vis");
+    var xscale = 1, xoff = 0;
+    var maxLength = 1000;
+    var yscale = 1, yoff = 0;
+    var chart = []
+    function updateVis(newVal) {
+        chart = [newVal].concat(chart);
+        if (chart.length > maxLength) {
+            chart.pop();
+        }
+        var d = "M 0 100 L"
+        chart.forEach((e, i) => {
+            d += ` ${i * xscale + xoff} ${e * xscale + yoff},`
+        })
+        path.setAttribute("d", d);
+
+    }
+</script>
+
+<script type="module">
+
+    const radToDeg = 180 / Math.PI;
+
+    //const model = await faceLandmarksDetection.load(faceLandmarksDetection.SupportedPackages.mediapipeFacemesh);
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    await sleep(500);
+
+    const videoObj = document.querySelector("#videoElement");
+    const paramObj = document.querySelector("#params");
+
+    const cameraSelectObj = document.querySelector("#videoInputs");
+
+    let e = await loadModel("resource/hiyori_movie_pro_t02.model3.json");
+    // let e = await loadModel("resource/mark_free_import.model3.json");
+
+    let avaliableCameras = await navigator.mediaDevices.enumerateDevices();
+
+    avaliableCameras.forEach(cam => {
+        if (cam.kind == "videoinput") {
+            let el = document.createElement("option");
+            el.value = cam.deviceId;
+            el.innerHTML = cam.label;
+            cameraSelectObj.appendChild(el);
+        }
+    })
+
+
+    if (navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(function (stream) {
+                videoObj.srcObject = stream;
+            })
+            .catch(function (err0r) {
+                console.log("Something went wrong!", err0r);
+            });
+    }
+
+    const camera = new Camera(videoObj, {
+        onFrame: async () => {
+            await faceMesh.send({ image: videoObj });
+        }
+    });
+    camera.start();
+
+
+    const faceMesh = new FaceMesh({
+        locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }
+    });
+    faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+    faceMesh.onResults(onResults);
+
+    function onResults(result) {
+        if (result.multiFaceLandmarks) {
+            // console.log(result)
+            refreshPreviewer(result.multiFaceLandmarks[0])
+        }
+    }
+
+
+    async function faceDetection(video) {
+        const faces = await model.estimateFaces({ input: video });
+        try {
+            //console.log(faces);
+            refreshPreviewer(faces[0]);
+        } catch (err) {
+
+        }
+
+        setTimeout(() => {
+            faceDetection(video);
+        }, 5);
+    }
+
+    let lastEyeOpenL = 0, lastEyeOpenR = 0;
+    let lastEyeX = 0, lastEyeY = 0;
+
+    function refreshPreviewer(face) {
+        if (!face) return;
+        var totalVect = [0, 0, 0];
+
+        for (var i of [6, 36, 266]) {
+            totalVect[0] += face[1].x - face[i].x;
+            totalVect[1] += face[1].y - face[i].y;
+            totalVect[2] += face[1].z - face[i].z;
+        }
+
+        var vect = normalize(totalVect).map(x => x * 2);
+
+        vect[1] = -(vect[1] - 1.5) * 2;
+
+
+        let truevect = [];
+        let rawX = - Math.atan2((vect[0]), (vect[2])) * radToDeg;
+        let rawY = - Math.atan2((vect[1]), (vect[2])) * radToDeg
+
+        if (rawX > 0) {
+            rawX -= 180
+        } else {
+            rawX += 180
+        }
+
+        if (rawY > 0) {
+            rawY -= 180
+        } else {
+            rawY += 180
+        }
+        rawY -= 15;
+
+        truevect[0] = rawX;
+        truevect[1] = rawY;
+
+        window.lastVect = truevect;
+
+        // console.log(face);
+        window.lastDetectedFace = face;
+        // var tip = face.annotations.noseTip[0];
+        var leftCorner = face[36];
+        var rightCorner = face[266];
+
+        let scale = distanceVector(leftCorner, rightCorner);
+
+
+        var mouseOpenVec = distanceVector(face[13], face[14]);
+        var mouseOpen = distanceVector(face[13], face[14]) * 10;
+
+        let leyeOpen = distanceVector(face[159], face[145]) / scale;
+        let reyeOpen = distanceVector(face[386], face[374]) / scale;
+
+        leyeOpen = leyeOpen * 10 - 1;
+        reyeOpen = reyeOpen * 10 - 1;
+
+        if (leyeOpen > 0.3) {
+            leyeOpen = 1
+        } else {
+            leyeOpen = 0
+        }
+
+        if (reyeOpen > 0.3) {
+            reyeOpen = 1
+        } else {
+            reyeOpen = 0
+        }
+
+        lastEyeOpenL = leyeOpen;
+        lastEyeOpenR = reyeOpen;
+
+        // var vec1 = [];
+        // var vec2 = [];
+
+        // leftCorner.forEach((el, index) => {
+        //     vec1.push(tip[index] - el);
+        // });
+        // rightCorner.forEach((el, index) => {
+        //     vec2.push(tip[index] - el);
+        // });
+
+        // // head tilt
+        var angle = - Math.atan2((rightCorner.y - leftCorner.y), (rightCorner.x, leftCorner.x));
+        var theta = angle * radToDeg;
+
+        window.lastTheta = theta;
+        // vect = vect.map(x => x * 30);
+
+        // //eye position L362 R263 I473
+
+        let toLeft = 0, toRight = 0, toTop = 0, toBottom = 0;
+
+        if(reyeOpen != 0){
+            toLeft += distanceVector(face[362], face[473])
+            toRight += distanceVector(face[263], face[473])
+            toTop += distanceVector(face[386], face[473])
+            toBottom += distanceVector(face[374], face[473])
+        }
+        if(leyeOpen != 0){
+            toLeft += distanceVector(face[33], face[468])
+            toRight += distanceVector(face[133], face[468])
+            toTop += distanceVector(face[159], face[468])
+            toBottom += distanceVector(face[145], face[468])
+        }
+        let eyeX = ((toLeft / (toLeft + toRight)) - 0.5) * 6.25 || 0;
+        let eyeY = ((toBottom/(toBottom + toTop)) - 0.55) * 5 || 0;
+        
+
+
+        if(distanceVector({x:0,y:0,z:0}, {x:eyeX,y:eyeY,z:0}) < 0.3){
+            eyeX = lastEyeX * 0.8 + eyeX * 0.2;
+            eyeY = lastEyeY * 0.8 + eyeY * 0.2;
+        }
+
+        lastEyeX = eyeX;
+        lastEyeY = eyeY;
+
+        let EyebrowL = -((distanceVector(face[105], face[104]) / scale) - 0.2) * 15 , EyebrowR = -((distanceVector(face[334], face[333]) / scale) - 0.2) * 15;
+
+
+        if (e) e.character.setMotion((truevect[0]), truevect[1], -theta, 1, mouseOpen);
+        e.character.setEyes(eyeX, eyeY, leyeOpen, reyeOpen);
+        // setBrowsParameter(lx,ly,la,rx,ry,ra);
+        e.character.setBrowsParameter(0,EyebrowL,0,0,EyebrowR,0)
+        // e.character.setEyes(eyeX, eyeY, isblinking(eyeBL), isblinking(eyeBR));
+
+        paramObj.innerHTML =
+            `
+        normal:${(vect[0] * 30).toFixed(2)},${(vect[1] * 30 - 15).toFixed(2)},${(vect[2] * 30).toFixed(2)}
+        theta: ${theta}
+        mouth Open: ${mouseOpen}
+        Eye open: L ${leyeOpen}, R ${reyeOpen}
+        eye width: ${eyeX}
+        eye height: ${eyeY}
+        brow L: ${EyebrowL}
+        brow R: ${EyebrowR}
+        `
+
+        //updateVis(vect[0])
+        // animate();
+
+    }
+
+
+
+
+    function isblinking(lid) {
+        if (lid > 0.4) return 1;
+        else return 0;
+    }
+
+    // console.log("mark: ", e);
+
+    function distanceVector(v1, v2) {
+        var dx = v1.x - v2.x;
+        var dy = v1.y - v2.y;
+        var dz = v1.z - v2.z;
+
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    function normalize(v) {
+        var magn = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        if (magn == 0) {
+            return 0;
+        }
+        return [[v[0] / magn], [v[1] / magn], [v[2] / magn]];
+    }
+
+
+</script>
+
+<script>
+    const previewer = document.querySelector("#previewers");
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(500, 500);
+    previewer.appendChild(renderer.domElement);
+    renderer.setClearColor(0xffffff, 1);
+
+    vertices = []
+
+    const geometry = new THREE.BufferGeometry();
+    const geometry2 = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geometry2.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+
+    const sprite = new THREE.TextureLoader().load('src/disc.png');
+
+    const material = new THREE.PointsMaterial({ size: 0.1, sizeAttenuation: true, map: sprite, alphaTest: 0.5, transparent: true });
+    material.color.setHSL(0.6, 1.0, 0.5);
+
+    const material2 = new THREE.PointsMaterial({ size: 0.3, sizeAttenuation: true, map: sprite, alphaTest: 0.5, transparent: true });
+    material2.color.setHSL(0.0, 1.0, 0.5);
+
+
+    const particles = new THREE.Points(geometry, material);
+    const particles2 = new THREE.Points(geometry2, material2);
+    scene.add(particles);
+    scene.add(particles2);
+
+    // console.log(particles);
+    console.log(camera);
+    camera.position.z = -5;
+    // 
+    const axesHelper = new THREE.AxesHelper(2);
+    scene.add(axesHelper);
+
+
+    //var face = window.lastDetectedFace.mesh;
+
+    // camera.position.z = -30;
+    // camera.position.y = 25;
+    // camera.position.x = 30;
+    camera.lookAt(0, 0, 0);
+    camera.rotation.z = THREE.MathUtils.degToRad(0);
+
+
+    // camera.rotation.z = Math.PI * 2;
+
+    const animate = function () {
+        var specialAnnotations = [];
+        var specialVerts = [];
+        let scale = 1;
+        let faceVect = {}
+
+        if (lastDetectedFace != null) {
+            faceVect = {
+                x: THREE.MathUtils.degToRad(lastVect[0]),
+                y: THREE.MathUtils.degToRad(lastVect[1]),
+                z: THREE.MathUtils.degToRad(lastTheta)
+            }
+
+
+            scale = distanceVector(lastDetectedFace[36], lastDetectedFace[266]);
+            specialAnnotations.push(lastDetectedFace[105]);//eyebrow
+            specialAnnotations.push(lastDetectedFace[104]);//eyebrow upper
+            specialAnnotations.push(lastDetectedFace[334]);//eyebrow
+            specialAnnotations.push(lastDetectedFace[333]);//eyebrow upper
+            specialAnnotations.push(lastDetectedFace[6]);//bridge
+            specialAnnotations.push(lastDetectedFace[36]);//nose corner
+            specialAnnotations.push(lastDetectedFace[266]);//nose corner
+            specialAnnotations.push(lastDetectedFace[1]);//nose tip
+
+            specialAnnotations.push(lastDetectedFace[473]); //IRIS
+            specialAnnotations.push(lastDetectedFace[468]); //IRIS
+
+
+            specialVerts = specialAnnotations.map(processFace).flat();
+            vertices = lastDetectedFace.map(processFace).flat();
+
+        }
+
+        // camera.lookAt(look[0],look[1],look[2]);
+
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+        geometry2.setAttribute('position', new THREE.Float32BufferAttribute(specialVerts, 3));
+        particles.scale.x = 0.15 / scale;
+        particles.scale.y = 0.15 / scale;
+        particles.scale.z = 0.15 / scale;
+        particles2.scale.x = 0.15 / scale;
+        particles2.scale.y = 0.15 / scale;
+        particles2.scale.z = 0.15 / scale;
+
+        axesHelper.rotation.y = THREE.MathUtils.degToRad(lastVect[0]);
+        axesHelper.rotation.x = THREE.MathUtils.degToRad(lastVect[1]);
+        axesHelper.rotation.z = THREE.MathUtils.degToRad(-lastTheta);
+
+        renderer.render(scene, camera);
+    };
+
+    function processFace(x) {
+        let y = []
+        y[0] = (x.x - lastDetectedFace[1].x) * 10;
+        y[1] = (x.y - lastDetectedFace[1].y) * 10;
+        y[2] = 0;
+        return y
+    }
+
+    function distanceVector(v1, v2) {
+        var dx = v1.x - v2.x;
+        var dy = v1.y - v2.y;
+        var dz = v1.z - v2.z;
+
+        return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+
+
+</script>
+
+
+</html>
